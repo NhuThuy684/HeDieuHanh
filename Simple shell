@@ -1,0 +1,288 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+
+#define MAX_LINE 80
+
+//Doc gia tri input, cap phat bo nho luu tru.
+char *read_Input(void)
+{
+	int buffer_size = 2048;
+	char *input = malloc(buffer_size* sizeof(char));
+	int size = 0;
+    	char c;
+	
+	if(input == NULL)
+	{
+		fprintf(stderr, "Error: malloc failed!\n");
+	}
+	while((c = getchar()) != '\n')
+	{
+		if(c == EOF)
+		{
+			free(input);
+            		return NULL;
+		}
+		if (size >= buffer_size)
+        	{
+            		buffer_size = 2 * buffer_size;
+            		input = realloc(input, buffer_size);
+        	}
+		input[size++] = c;
+	}
+	input[size] = '\0';
+    	return input;
+}
+
+//Ham tach chuoi thanh nhung ki tu.
+void tok_Array(char *args[MAX_LINE], char line[MAX_LINE])
+{
+	char s[2] = " ";
+	char *token = strtok(line, s);
+	args[0] = token;
+	int b = 0;
+	while (token != NULL)
+	{
+		args[b++] = token;
+        	token = strtok(NULL, s);
+	}
+}
+
+void clear_Array(char *args[MAX_LINE])
+{
+	for (int i = 0; i < MAX_LINE; i++)
+	{
+
+		if (args[i] != NULL)
+		{
+			args[i] = NULL;
+		}
+	}
+}
+
+//Kiem tra yeu cau de thuc hien cac lenh tuong ung.
+char is_typeInput(char *args[MAX_LINE])
+{
+	if (strcmp(args[0], "!!") == 0)
+	{
+		return 'h';
+	}
+	for (int i = 1; i < MAX_LINE && args[i] != NULL; i++)
+	{
+		if (strcmp(args[i], ">") == 0)
+		{
+			return 'o';
+		}
+
+		if (strcmp(args[i], "<") == 0)
+		{
+			return 'i';
+		}
+
+		if (strcmp(args[i], "|") == 0)
+		{
+			return 'p';
+		}
+	}
+    return 0;
+}
+
+void redirecting_Input(char *args[MAX_LINE]);
+void redirecting_Output(char *args[MAX_LINE]);
+
+//Ham in lich su:
+void recent_History(char *args[MAX_LINE], char *history[MAX_LINE])
+{
+	char check = is_typeInput(history);
+	switch(check)
+	{
+		case 'i':
+		redirecting_Input(history);
+		break;
+
+		case 'o':
+		redirecting_Output(history);
+		break;
+
+		case 'p':
+		//fd_pipe(history);
+		break;
+
+		default:
+		execvp(history[0], history);
+    		perror("execv");
+    		exit(EXIT_FAILURE);
+		break;
+	}
+    
+}
+
+
+//Ham chuyen huong input:
+void redirecting_Input(char *args[MAX_LINE])
+{
+	int temp;
+	for (int i = 0; i < MAX_LINE; i++)
+	{
+		if(strcmp(args[i], "<") == 0)
+		{
+			args[i] = NULL;
+			temp = i + 1;
+			break;
+		}
+	}
+	int in;
+	in = open (args[temp],O_RDONLY);
+	dup2(in, 0);
+	close(in);
+
+	execvp(args[0], args);
+	perror ("execv");
+	exit(EXIT_FAILURE);
+}
+
+//Ham chuyen huong output:
+void redirecting_Output(char *args[MAX_LINE])
+{
+	int temp;
+	for (int i = 0; i < MAX_LINE; i++)
+	{
+		if(strcmp(args[i], ">") == 0)
+		{
+			args[i] = NULL;
+			temp = i + 1;
+			break;
+		}
+	}
+	int in;
+	in = open (args[temp], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR );
+	dup2(in, 1);
+	close(in);
+
+	execvp(args[0], args);
+	perror ("execv");
+	exit(EXIT_FAILURE);
+}
+
+//Ham tao duong ong:
+void fd_pipe(char *args[MAX_LINE])
+{
+	int temp;
+	for (int i = 0; i < MAX_LINE; i++)
+	{
+		if(strcmp(args[i], "|") == 0)
+		{
+			args[i] = NULL;
+			temp = i + 1;
+			break;
+		}
+	}
+	pid_t pid1, pid2;
+   	int pipefd[2];
+	pipe(pipefd);
+	
+	pid1 = fork();
+	if (pid1 == 0) 
+	{
+		dup2(pipefd[1], 1);
+      		close(pipefd[0]);
+		execvp(args[0], args);
+      		perror("exec");
+		exit(EXIT_FAILURE);
+	}
+
+	pid2 = fork();
+	if (pid2 == 0) 
+	{
+		dup2(pipefd[0], 0);
+      		close(pipefd[1]);
+		execvp(args[temp], args);
+      		perror("exec");
+		exit(EXIT_FAILURE);
+	}
+	close(pipefd[0]);
+   	close(pipefd[1]);
+
+	wait(0);
+}
+
+
+static char *input;
+int main()
+{
+	char line1[MAX_LINE];
+    	char line2[MAX_LINE];
+
+    	char *args[MAX_LINE];
+    	char *history[MAX_LINE];
+
+    	int run = 1;
+    	char *token;
+    	const char s[2] = " ";
+
+    	clear_Array(args);
+    	clear_Array(history);
+	pid_t pid;
+	
+	while(run)
+	{
+		printf("osh> ");
+        	input = read_Input();
+        	strcpy(line1, input);
+
+        	clear_Array(args);
+        	tok_Array(args, line1);
+
+        	char check = is_typeInput(args);
+
+        	pid = fork();
+
+		if(pid < 0)
+		{
+			exit(EXIT_FAILURE);
+		}
+		else if (pid == 0)
+		{
+			switch(check)
+			{
+				case 'h':
+				recent_History(args, history);
+				break;
+
+				case 'i':
+				redirecting_Input(args);
+				break;
+
+				case 'o':
+				redirecting_Output(args);
+				break;
+
+				case 'p':
+				fd_pipe(args);
+				break;
+
+				default:
+				execvp(args[0], args);
+				perror("execv");
+				exit(EXIT_FAILURE);
+				break;
+			}
+		}
+		else
+		{
+			wait(0);
+		}
+		if (check != 'p')
+        	{
+            		clear_Array(history);
+            		strcpy(line2, input);
+            		tok_Array(history, line2);
+        	}
+	}
+	return 0;
+}
